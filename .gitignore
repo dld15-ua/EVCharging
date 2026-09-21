@@ -1,0 +1,22 @@
+# Archivos temporales y compilados de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+venv/
+env/
+.env/
+.venv/
+
+# Base de datos SQLite (para no arrastrar registros antiguos; se autogenera al iniciar)
+*.db
+*.sqlite3
+
+# Archivos de configuración de editores
+.vscode/
+
+# Certificados y claves SSL
+*.pem
+*.key
+certs/
