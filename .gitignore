@@ -15,8 +15,14 @@ env/
 
 # Archivos de configuración de editores
 .vscode/
+.idea/
 
-# Certificados y claves SSL
-*.pem
-*.key
-certs/
+# Certificados y claves SSL (regenerar con scripts/generate_certs.sh)
+certs/*.pem
+
+# Docker
+.env
+
+# Sistema
+.DS_Store
+Thumbs.db
