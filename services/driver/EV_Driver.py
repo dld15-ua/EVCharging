@@ -1,4 +1,5 @@
 import sys
+import os
 import time
 import threading
 from kafka import KafkaProducer, KafkaConsumer
@@ -120,14 +121,21 @@ def procesar_cp_fichero(productor, driver_id, broker, fichero):
     print("--- Fichero de servicios completado. ---")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4 or len(sys.argv) > 5:
+    broker_ip = os.environ.get("BROKER_HOST", "")
+    broker_puerto = os.environ.get("BROKER_PORT", "")
+    driver_id = os.environ.get("DRIVER_ID", "")
+
+    # compatibilidad: si no hay env vars, leer de sys.argv
+    if not broker_ip and len(sys.argv) >= 4:
+        broker_ip = sys.argv[1]
+        broker_puerto = sys.argv[2]
+        driver_id = sys.argv[3]
+    elif not broker_ip:
         print("Error: Argumentos incorrectos")
         print("Uso: python3 EV_Driver.py <ip_broker> <puerto_broker> <driver_id> [fichero_servicios]")
+        print("  o configurar: BROKER_HOST, BROKER_PORT, DRIVER_ID")
         sys.exit(1)
-    
-    broker_ip = sys.argv[1]
-    broker_puerto = sys.argv[2]
-    driver_id = sys.argv[3]
+
     broker = f'{broker_ip}:{broker_puerto}'
 
     try:
@@ -143,8 +151,11 @@ if __name__ == "__main__":
     time.sleep(2)
 
     try:
-        if len(sys.argv) == 5:
+        fichero = os.environ.get("SERVICE_FILE", "")
+        if not fichero and len(sys.argv) == 5:
             fichero = sys.argv[4]
+        
+        if fichero:
             print(f"Iniciando peticiones de fichero {fichero} para {driver_id}")
             procesar_cp_fichero(productor, driver_id, broker, fichero)
         else:

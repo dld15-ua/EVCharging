@@ -2,6 +2,7 @@ import ssl
 import requests
 import socket
 import sys
+import os
 import time
 import threading
 from cryptography.fernet import Fernet
@@ -218,38 +219,75 @@ def monitorizacion(cp_id, ADDR_CENTRAL, ADDR_ENGINE):
             socket_engine.close()
 
 if __name__ == "__main__":
-    if len(sys.argv) != 7:
+    central_ip = os.environ.get("CENTRAL_HOST", "")
+    central_puerto = os.environ.get("CENTRAL_PORT", "")
+    engine_ip = os.environ.get("ENGINE_HOST", "")
+    engine_puerto = os.environ.get("ENGINE_PORT", "")
+    cp_id = os.environ.get("CP_ID", "")
+    ubicacion = os.environ.get("UBICACION", "")
+
+    # compatibilidad: si no hay env vars, leer de sys.argv
+    if not central_ip and len(sys.argv) == 7:
+        central_ip = sys.argv[1]
+        central_puerto = sys.argv[2]
+        engine_ip = sys.argv[3]
+        engine_puerto = sys.argv[4]
+        cp_id = sys.argv[5]
+        ubicacion = sys.argv[6]
+    elif not central_ip:
         print("Error: Argumentos incorrectos")
         print("Uso: python3 EV_CP_M.py <central_ip> <central_puerto> <engine_ip> <engine_puerto> <cp_id> <ubicacion_cp>")
+        print("  o configurar: CENTRAL_HOST, CENTRAL_PORT, ENGINE_HOST, ENGINE_PORT, CP_ID, UBICACION")
         sys.exit(1)
 
-    central_ip = sys.argv[1]
-    central_puerto = int(sys.argv[2])
-    engine_ip = sys.argv[3]
-    engine_puerto = int(sys.argv[4])
-    cp_id = sys.argv[5]
-    ubicacion = sys.argv[6]
+    central_puerto = int(central_puerto)
+    engine_puerto = int(engine_puerto)
     
     ADDR_CENTRAL = (central_ip, central_puerto)
     ADDR_ENGINE = (engine_ip, engine_puerto)
     
-    URL_REGISTRY = f"https://192.168.56.110:5000" #la maquina donde esta dirvers y registry
+    URL_REGISTRY = os.environ.get("REGISTRY_URL", "https://192.168.56.110:5000") #la maquina donde esta dirvers y registry
+    
+    auto_register = os.environ.get("AUTO_REGISTER", "false").lower() == "true"
     
     monitor_running = True
     threading.Thread(target=monitorizacion, args=(cp_id, ADDR_CENTRAL, ADDR_ENGINE), daemon=True).start()
     try:
-        while True:
-            input("Pulsa ENTER para renovar credenciales: ")
+        if auto_register:
+            # modo Docker: registro automatico al arrancar
+            import signal
+            print("Modo auto-registro: solicitando credenciales al Registry...")
             
-            print("\nSolicitando nuevas credenciales al Registry...")
-            nuev_tok, nuev_clav = registrar_cp_registry(cp_id, URL_REGISTRY, ubicacion)
+            # reintentar registro hasta que Registry este disponible
+            while True:
+                nuev_tok, nuev_clav = registrar_cp_registry(cp_id, URL_REGISTRY, ubicacion)
+                if nuev_tok:
+                    token_actual = nuev_tok
+                    clave_actual = nuev_clav
+                    print("Credenciales obtenidas. Monitor activo.")
+                    break
+                else:
+                    print("Registry no disponible, reintentando en 3s...")
+                    time.sleep(3)
             
-            if nuev_tok:
-                token_actual = nuev_tok
-                clave_actual = nuev_clav
-                print("Credenciales actualizadas. El monitor intentará reconectar automáticamente.")
-            else:
-                print("Error al renovar credenciales")
+            stop_event = threading.Event()
+            signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
+            signal.signal(signal.SIGINT, lambda *_: stop_event.set())
+            stop_event.wait()
+        else:
+            # modo original: esperar ENTER para renovar credenciales
+            while True:
+                input("Pulsa ENTER para renovar credenciales: ")
+                
+                print("\nSolicitando nuevas credenciales al Registry...")
+                nuev_tok, nuev_clav = registrar_cp_registry(cp_id, URL_REGISTRY, ubicacion)
+                
+                if nuev_tok:
+                    token_actual = nuev_tok
+                    clave_actual = nuev_clav
+                    print("Credenciales actualizadas. El monitor intentará reconectar automáticamente.")
+                else:
+                    print("Error al renovar credenciales")
                 
     except KeyboardInterrupt:
         monitor_running = False

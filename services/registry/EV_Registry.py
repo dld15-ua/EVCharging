@@ -1,11 +1,12 @@
 from flask import Flask, request, jsonify
 import requests
 import ssl
+import os
 import secrets
 from cryptography.fernet import Fernet
 import sys
 
-URL_CENTRAL = "https://192.168.56.1:5001"
+URL_CENTRAL = os.environ.get("CENTRAL_URL", "https://192.168.56.1:5001")
 
 app = Flask(__name__)
 
@@ -58,15 +59,18 @@ def registrar_cp():
 
 if __name__ == '__main__':
     contexto_ssl = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    cert_file = os.environ.get('CERT_FILE', 'registry_cert.pem')
+    key_file = os.environ.get('KEY_FILE', 'registry_key.pem')
     try:
-        contexto_ssl.load_cert_chain('registry_cert.pem', 'registry_key.pem') #cargamos el certificado del registry
+        contexto_ssl.load_cert_chain(cert_file, key_file) #cargamos el certificado del registry
         print("Se han cargado los Certificados SSL.")
     except Exception as e:
         print(f"Error al cargar los certificados: {e}")
         sys.exit(1)
     
-    print("Iniciando EV_Registry con securizacion en https://0.0.0.0:5000")
+    registry_port = int(os.environ.get('REGISTRY_PORT', '5000'))
+    print(f"Iniciando EV_Registry con securizacion en https://0.0.0.0:{registry_port}")
 
     # ponemos 0.0.0.0 para la maquina donde esta el monitor pueda pedir el registro
-    app.debug = True
-    app.run(host='0.0.0.0', port=5000, ssl_context=contexto_ssl, debug=True)
+    app.debug = False
+    app.run(host='0.0.0.0', port=registry_port, ssl_context=contexto_ssl, debug=False)

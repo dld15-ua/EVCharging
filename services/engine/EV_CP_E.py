@@ -215,7 +215,8 @@ def proceso_carga(cp_id, driver_id, precio_kwh, broker):
 # ------ Funciones para manejar la comunicacion por sockets entre Monitor y Engine ------
 def start_server(puerto, cp_id):
     global CLAVE_CIFRADO
-    ADDR = ('127.0.0.1', puerto)
+    bind_addr = os.environ.get('ENGINE_BIND', '0.0.0.0')
+    ADDR = (bind_addr, puerto)
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     
@@ -275,15 +276,22 @@ def start_server(puerto, cp_id):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 5:
+    broker_ip = os.environ.get("BROKER_HOST", "")
+    broker_puerto = os.environ.get("BROKER_PORT", "")
+    cp_id = os.environ.get("CP_ID", "")
+    puerto = int(os.environ.get("ENGINE_PORT", "0"))
+
+    # compatibilidad: si no hay env vars, leer de sys.argv
+    if not broker_ip and len(sys.argv) == 5:
+        broker_ip = sys.argv[1]
+        broker_puerto = sys.argv[2]
+        cp_id = sys.argv[3]
+        puerto = int(sys.argv[4])
+    elif not broker_ip:
         print("Error: argumentos incorrectos")
         print("Uso: python3 EV_CP_E.py <broker_ip> <broker_puerto> <cp_id> <puerto>")
+        print("  o configurar: BROKER_HOST, BROKER_PORT, CP_ID, ENGINE_PORT")
         sys.exit(1)
-
-    broker_ip = sys.argv[1]
-    broker_puerto = sys.argv[2]
-    cp_id = sys.argv[3]
-    puerto = int(sys.argv[4])
 
     broker = f"{broker_ip}:{broker_puerto}"
     
@@ -295,21 +303,35 @@ if __name__ == "__main__":
     print(f"Iniciado ENGINE para {cp_id}")
     
     # hilo principal que controla el estado, podemos simular ko poniendo ko en terminal
-    print("Escribe 'ko' para simular avería, 'ok' para restaurar.")
-    try:
-        while True:
-            cmd = input("Simular AVERIA (ko) o ACTIVAR (ok) ").strip().lower()
-            if cmd == "ko":
-                set_estado("KO")
-            elif cmd == "ok":
-                # si no está en medio de una carga
-                if get_estado() == "SUMINISTRANDO":
-                    print("No se puede poner 'ok' mientras suministra. La carga debe finalizar.")
+    interactive = os.environ.get("ENGINE_INTERACTIVE", "true").lower() == "true"
+    
+    if interactive and sys.stdin.isatty():
+        print("Escribe 'ko' para simular avería, 'ok' para restaurar.")
+        try:
+            while True:
+                cmd = input("Simular AVERIA (ko) o ACTIVAR (ok) ").strip().lower()
+                if cmd == "ko":
+                    set_estado("KO")
+                elif cmd == "ok":
+                    # si no está en medio de una carga
+                    if get_estado() == "SUMINISTRANDO":
+                        print("No se puede poner 'ok' mientras suministra. La carga debe finalizar.")
+                    else:
+                        set_estado("OK")
+                elif cmd == "":
+                    continue
                 else:
-                    set_estado("OK")
-            elif cmd == "":
-                continue
-            else:
-                print("Comando no reconocido. Usa 'ok' o 'ko'.")
-    except KeyboardInterrupt:
-        print("\nFinalizando Engine por Ctrl+C...")
+                    print("Comando no reconocido. Usa 'ok' o 'ko'.")
+        except KeyboardInterrupt:
+            print("\nFinalizando Engine por Ctrl+C...")
+    else:
+        print("Engine en modo daemon (sin entrada interactiva).")
+        try:
+            import signal
+            stop_event = threading.Event()
+            signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
+            signal.signal(signal.SIGINT, lambda *_: stop_event.set())
+            stop_event.wait()
+        except KeyboardInterrupt:
+            pass
+        print("\nFinalizando Engine...")

@@ -10,8 +10,8 @@ from cryptography.fernet import Fernet
 from flask import Flask, jsonify, request, render_template
 import datetime
 
-DB_FILE = "evcharging.db" #fichero de la BD
-db = DatabaseManager("evcharging.db")
+DB_FILE = os.environ.get("DB_PATH", "evcharging.db") #fichero de la BD
+db = DatabaseManager(DB_FILE)
 
 historial_logs = [] # para guardar los logs importantes, con la funcion auditar evento, y poder mostrarlos en el front
 lock_frontend = threading.Lock()
@@ -524,7 +524,7 @@ def handle_client(conn, addr, producer):
 def start_server(puerto, producer):
     contexto_ssl = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     try:
-        contexto_ssl.load_cert_chain(certfile='server_cert.pem', keyfile='server_key.pem')
+        contexto_ssl.load_cert_chain(certfile=os.environ.get('CERT_FILE', 'server_cert.pem'), keyfile=os.environ.get('KEY_FILE', 'server_key.pem'))
     except Exception as e:
         print(f"Error cargando certificados SSL: {e}")
         return # si no hay certificados central no arranca
@@ -709,14 +709,20 @@ def revocar_credenciales(cp_id): # implementacion de la funcionalidad de revocar
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    puerto = int(os.environ.get("SOCKET_PORT", "0"))
+    broker_ip = os.environ.get("BROKER_HOST", "")
+    broker_puerto = os.environ.get("BROKER_PORT", "")
+
+    # compatibilidad: si no hay env vars, leer de sys.argv
+    if not broker_ip and len(sys.argv) == 4:
+        puerto = int(sys.argv[1])
+        broker_ip = sys.argv[2]
+        broker_puerto = sys.argv[3]
+    elif not broker_ip:
         print("Error: argumentos incorrectos")
         print("Uso: python3 EV_CP_Central.py <puerto_escucha> <broker_ip> <broker_puerto>")
+        print("  o configurar: SOCKET_PORT, BROKER_HOST, BROKER_PORT")
         sys.exit(1)
-
-    puerto = int(sys.argv[1])
-    broker_ip = sys.argv[2]
-    broker_puerto = sys.argv[3]
     
     broker = f"{broker_ip}:{broker_puerto}"
     
@@ -743,11 +749,12 @@ if __name__ == "__main__":
     
     contexto_ssl = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     try:
-        contexto_ssl.load_cert_chain('server_cert.pem', 'server_key.pem')
+        contexto_ssl.load_cert_chain(os.environ.get('CERT_FILE', 'server_cert.pem'), os.environ.get('KEY_FILE', 'server_key.pem'))
         print("Se han cargado correctamente los certificados SSL para la API CENTRAL.")
     except Exception as e:
         print(f"Error al cargar certificados para la API CENTRAL: {e}")
         sys.exit(1)
 
-    print(f"API CENTRAL escuchando en https://0.0.0.0:5001")
-    app.run(host='0.0.0.0', port=5001, ssl_context=contexto_ssl, debug=False)
+    api_port = int(os.environ.get("API_PORT", "5001"))
+    print(f"API CENTRAL escuchando en https://0.0.0.0:{api_port}")
+    app.run(host='0.0.0.0', port=api_port, ssl_context=contexto_ssl, debug=False)

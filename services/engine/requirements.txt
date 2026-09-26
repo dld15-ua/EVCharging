@@ -1,0 +1,2 @@
+cryptography
+kafka-python

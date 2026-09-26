@@ -1,17 +1,29 @@
 import time
+import os
 import requests
 import sys
 
-API_KEY = "bfeda57348ea4fb6d487399245c47a30"
+API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
-CIUDADES = { #diccionario con las localidades a las que pedira el clima la api, con su CP
+# formato env var: "Alicante:ALC1,Madrid:ALC2"
+def parsear_ciudades(env_str):
+    ciudades = {}
+    if env_str:
+        for par in env_str.split(','):
+            partes = par.strip().split(':')
+            if len(partes) == 2:
+                ciudades[partes[0].strip()] = partes[1].strip()
+    return ciudades
+
+_ciudades_env = os.environ.get("CIUDADES", "")
+CIUDADES = parsear_ciudades(_ciudades_env) if _ciudades_env else {
     "Alicante": "ALC1",
     "Madrid": "ALC2"
 }
 
-CENTRAL_URL = "https://192.168.56.1:5001" 
+CENTRAL_URL = os.environ.get("CENTRAL_URL", "https://192.168.56.1:5001")
 
-LIMITE_TEMP = 20
+LIMITE_TEMP = int(os.environ.get("LIMITE_TEMP", "20"))
 
 estados_clima = {} #para mantener el estado del clima
 
