@@ -201,7 +201,7 @@ EVCharging es un sistema distribuido de gestión de puntos de recarga de vehícu
 - Si Central responde 503 (CP desconectado), reintenta en el siguiente ciclo.
 
 **URLs hardcodeadas**: `CENTRAL_URL = "https://192.168.56.1:5001"`  
-**API Key hardcodeada**: `bfeda57348ea4fb6d487399245c47a30`
+**API Key hardcodeada**: (configurar en `.env` como `OPENWEATHER_API_KEY`)
 
 ---
 
@@ -333,7 +333,7 @@ kafka-python
 | `URL_CENTRAL` | `https://192.168.56.1:5001` | `EV_Registry.py` | 8 |
 | `URL_REGISTRY` | `https://192.168.56.110:5000` | `EV_CP_M.py` | 236 |
 | `CENTRAL_URL` | `https://192.168.56.1:5001` | `EV_Weather.py` | 12 |
-| `API_KEY` (OpenWeather) | `bfeda57348ea4fb6d487399245c47a30` | `EV_Weather.py` | 5 |
+| `API_KEY` (OpenWeather) | *(configurar en `.env`)* | `EV_Weather.py` | 5 |
 | API Central port | `5001` | `EV_Central.py` | 752 |
 | Registry port | `5000` | `EV_Registry.py` | 72 |
 | Engine socket | `127.0.0.1:<puerto>` | `EV_CP_E.py` | 218 |
@@ -706,7 +706,7 @@ services:
     build: ./services/weather
     environment:
       - CENTRAL_URL=https://central:5001
-      - OPENWEATHER_API_KEY=bfeda57348ea4fb6d487399245c47a30
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
       - CIUDADES=Alicante:ALC1,Madrid:ALC2
       - LIMITE_TEMP=20
     depends_on:
