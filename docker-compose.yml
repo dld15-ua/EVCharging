@@ -25,6 +25,22 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+  # --- Interfaz de Usuario ---
+  frontend:
+    build: ./services/frontend
+    container_name: evcharging-frontend
+    ports:
+      - "${FRONTEND_PORT:-5002}:5002"
+    environment:
+      - FRONTEND_PORT=5002
+      - CENTRAL_API_URL=https://localhost:${CENTRAL_API_PORT:-5001}
+    volumes:
+      - ./certs:/app/certs:ro
+    networks:
+      - evcharging-net
+    depends_on:
+      - central
+
 
   # --- Servidor Central ---
   central:

@@ -1,3 +1,4 @@
 flask
 cryptography
 kafka-python
+flask-cors

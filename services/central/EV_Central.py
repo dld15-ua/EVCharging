@@ -144,7 +144,7 @@ def kafka_central_driver(broker, producer):
                 print(f"Denegada la carga a {driver_id} en {cp_id}: Credenciales CP revocadas.")
                 producer.send('central_driver', f"DENEGADO,{driver_id},{cp_id},FALLO_SEGURIDAD_CP".encode(FORMAT))
                 producer.flush()
-                continu
+                continue
 
             if estado_actual != "ACTIVADO":
                 print(f"Denegada la carga a {driver_id} en {cp_id}, Estado: {estado_actual}")
@@ -564,12 +564,9 @@ def start_server(puerto, producer):
             server.close()
 
 # --- Configuracion deL API Rest de CENTRAL para la comunicacion con el modulo de weather y el front ---
+from flask_cors import CORS
 app = Flask(__name__)
-
-#ruta para el front
-@app.route('/')
-def home():
-    return render_template('index.html')
+CORS(app) # Habilita peticiones CORS desde el frontend web independiente
 
 # ruta para gurdar los datos que le llegan del registry en la bd
 @app.route('/api/internal/registro-cp', methods=['POST'])
