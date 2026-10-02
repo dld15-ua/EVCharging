@@ -162,6 +162,44 @@ services:
     networks:
       - evcharging-net
 
+  # --- Engine CP CP002 ---
+  engine-cp002:
+    build: ./services/engine
+    container_name: evcharging-engine-cp002
+    environment:
+      - TZ=Europe/Madrid
+      - BROKER_HOST=kafka
+      - BROKER_PORT=9092
+      - CP_ID=CP002
+      - ENGINE_PORT=65001
+      - ENGINE_INTERACTIVE=false
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - evcharging-net
+
+  # --- Monitor CP CP002 ---
+  monitor-cp002:
+    build: ./services/monitor
+    container_name: evcharging-monitor-cp002
+    environment:
+      - TZ=Europe/Madrid
+      - CENTRAL_HOST=central
+      - CENTRAL_PORT=65000
+      - ENGINE_HOST=engine-cp002
+      - ENGINE_PORT=65001
+      - CP_ID=CP002
+      - UBICACION=Calle-Politecnica
+      - REGISTRY_URL=https://registry:5000
+      - AUTO_REGISTER=true
+    depends_on:
+      - central
+      - registry
+      - engine-cp002
+    networks:
+      - evcharging-net
+
   # --- Conductor ---
   driver:
     build: ./services/driver
