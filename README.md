@@ -26,13 +26,13 @@ Consultar [SPEC.md](SPEC.md) para la especificación técnica completa.
 ## Despliegue con Docker
 
 ### 1. Generar certificados SSL
-
+- para linux
 ```bash
-./scripts/generate_certs.sh //para linux
+./scripts/generate_certs.sh 
 ```
-
+- para windows
 ```bash
-./scripts/generate_certs.bat //para windows
+./scripts/generate_certs.bat
 ```
 
 ### 2. Configurar variables de entorno
