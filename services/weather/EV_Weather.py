@@ -58,6 +58,8 @@ if __name__ == "__main__":
     for ciudad, cp_id in CIUDADES.items():
         estados_clima[ciudad] = None
 
+    ultimo_sync = time.time()
+    
     while True:
         try:
             print("Consultando la API de OpenWeather para obtener temperatura...")
@@ -70,14 +72,22 @@ if __name__ == "__main__":
                         estado = "alerta"
 
                     estado_anterior = estados_clima[ciudad] #sacamos el estado guradado anterior para ver si hace falta actualizarlo 
-                    if estado != estado_anterior:
-                        print(f"Se ha detectado un cambio en el estado del clima en {ciudad}")
+                    
+                    # Sincronizamos si hay un cambio, o de forma forzada cada 60 segundos para asegurar que Central no lo olvide al reiniciarse
+                    forzar_sync = (time.time() - ultimo_sync) > 60
+                    
+                    if estado != estado_anterior or forzar_sync:
+                        if estado != estado_anterior:
+                            print(f"Se ha detectado un cambio en el estado del clima en {ciudad}")
+                        else:
+                            print(f"Sincronización rutinaria del clima en {ciudad}")
 
                         if notificar_central(cp_id, estado):
                             estados_clima[ciudad] = estado
-                            print(f"Se ha cambiado el estado en {ciudad} a {estado}")
+                            if forzar_sync: 
+                                ultimo_sync = time.time()
                         else:
-                            print(f"Fallo al notificar cambio de estado")
+                            print(f"Fallo al notificar estado de clima")
                     else:
                         print("Sin cambios en el estado")
             time.sleep(4)

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   kafka:
     image: apache/kafka:3.7.0
@@ -17,6 +15,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 3
+      TZ: Europe/Madrid
     networks:
       - evcharging-net
     healthcheck:
@@ -32,6 +31,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-5002}:5002"
     environment:
+      - TZ=Europe/Madrid
       - FRONTEND_PORT=5002
       - CENTRAL_API_URL=https://localhost:${CENTRAL_API_PORT:-5001}
     volumes:
@@ -50,6 +50,7 @@ services:
       - "${CENTRAL_API_PORT:-5001}:5001"
       - "${CENTRAL_SOCKET_PORT:-65000}:65000"
     environment:
+      - TZ=Europe/Madrid
       - BROKER_HOST=kafka
       - BROKER_PORT=9092
       - SOCKET_PORT=65000
@@ -73,6 +74,7 @@ services:
     ports:
       - "${REGISTRY_PORT:-5000}:5000"
     environment:
+      - TZ=Europe/Madrid
       - CENTRAL_URL=https://central:5001
       - REGISTRY_PORT=5000
       - CERT_FILE=/app/certs/registry_cert.pem
@@ -89,6 +91,7 @@ services:
     build: ./services/engine
     container_name: evcharging-engine-alc1
     environment:
+      - TZ=Europe/Madrid
       - BROKER_HOST=kafka
       - BROKER_PORT=9092
       - CP_ID=ALC1
@@ -105,6 +108,7 @@ services:
     build: ./services/monitor
     container_name: evcharging-monitor-alc1
     environment:
+      - TZ=Europe/Madrid
       - CENTRAL_HOST=central
       - CENTRAL_PORT=65000
       - ENGINE_HOST=engine-alc1
@@ -125,6 +129,7 @@ services:
     build: ./services/engine
     container_name: evcharging-engine-alc2
     environment:
+      - TZ=Europe/Madrid
       - BROKER_HOST=kafka
       - BROKER_PORT=9092
       - CP_ID=ALC2
@@ -141,6 +146,7 @@ services:
     build: ./services/monitor
     container_name: evcharging-monitor-alc2
     environment:
+      - TZ=Europe/Madrid
       - CENTRAL_HOST=central
       - CENTRAL_PORT=65000
       - ENGINE_HOST=engine-alc2
@@ -161,6 +167,7 @@ services:
     build: ./services/driver
     container_name: evcharging-driver
     environment:
+      - TZ=Europe/Madrid
       - BROKER_HOST=kafka
       - BROKER_PORT=9092
       - DRIVER_ID=D001
@@ -177,6 +184,7 @@ services:
     build: ./services/weather
     container_name: evcharging-weather
     environment:
+      - TZ=Europe/Madrid
       - CENTRAL_URL=https://central:5001
       - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
       - CIUDADES=Alicante:ALC1,Madrid:ALC2

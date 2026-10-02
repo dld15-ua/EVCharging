@@ -172,9 +172,19 @@
                 div.className = "log-line";
                 div.innerText = msg;
 
-                if (msg.includes("AVERIA") || msg.includes("CLIMA") || msg.includes("FALLO")) {
-                    div.style.color = "#ff6b6b"; // color rojo si es alguno de las palabras anteriroes
+                // Lógica de colores ampliada y mejorada para una lectura más clara
+                if (msg.includes("AVERIA") || msg.includes("FALLO") || msg.includes("DENEGADO") || (msg.includes("CLIMA") && msg.includes("alerta"))) {
+                    div.style.color = "#ff6b6b"; // Rojo (Errores y alertas graves)
+                } else if (msg.includes("CARGA_AUTORIZADA") || msg.includes("CONEXION") || (msg.includes("CLIMA") && msg.includes("normal"))) {
+                    div.style.color = "#4cd137"; // Verde (Éxito y restauraciones)
+                } else if (msg.includes("SOLICITUD_CARGA")) {
+                    div.style.color = "#00a8ff"; // Azul (Información/Peticiones)
+                } else if (msg.includes("DESCONEXION") || msg.includes("SEGURIDAD") || msg.includes("PARADO")) {
+                    div.style.color = "#fbc531"; // Naranja (Advertencias)
+                } else {
+                    div.style.color = "#dcdde1"; // Gris claro por defecto
                 }
+                
                 panel.appendChild(div); // añade al panel
             }
         }

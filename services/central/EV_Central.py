@@ -15,6 +15,7 @@ db = DatabaseManager(DB_FILE)
 
 historial_logs = [] # para guardar los logs importantes, con la funcion auditar evento, y poder mostrarlos en el front
 lock_frontend = threading.Lock()
+cps_bajo_alerta_clima = set() # Memoria temporal para rastrear qué CPs sufren alertas climáticas
 
 # funcion para la auditorias, para eventos importantes como registro de un monitor, averia, alerta de clima
 def auditar_evento(origen, accion, descripcion):
@@ -24,7 +25,7 @@ def auditar_evento(origen, accion, descripcion):
     
     with lock_frontend:
         historial_logs.insert(0, mensaje_log) #ponemos el log mas nuevo arriba
-        if len(historial_logs) > 20: #como maximo 20 logs, para ir mostrando los mas importantes en la web
+        if len(historial_logs) > 50: #como maximo 50 logs, para ir mostrando los mas importantes en la web
             historial_logs.pop()
 
 #para guardar,consumo en Kw, importe en € y Id del conductor y mostrar cuando se esta cargando suministro y no tener que preguntara a la BD
@@ -117,11 +118,13 @@ def kafka_central_driver(broker, producer):
             driver_id = partes[1]
             cp_id = partes[2]
             print(f"Petición recibida de {driver_id} para carga en {cp_id}")
+            auditar_evento("KAFKA", "SOLICITUD_CARGA", f"Conductor {driver_id} solicita carga en {cp_id}")
 
             #valida si el conductor esta en la BD
             conductor = db.seleccionar_conductor(driver_id)
             if not conductor:
                 print(f"DENEGADO: Conductor '{driver_id}' no registrado.")
+                auditar_evento("KAFKA", "DENEGADO", f"Conductor {driver_id} desconocido")
                 producer.send('central_driver', f"DENEGADO,{driver_id},{cp_id},CONDUCTOR_DESCONOCIDO".encode(FORMAT))
                 producer.flush()
                 continue
@@ -129,6 +132,7 @@ def kafka_central_driver(broker, producer):
             #validar el cp_id recibido
             fila = db.seleccionar_cp(cp_id) #devuelve una tupla (cp_id, ubicacion, estado, precio)
             if not fila:
+                auditar_evento("KAFKA", "DENEGADO", f"CP {cp_id} no existe ({driver_id})")
                 producer.send('central_driver', f"DENEGADO,{driver_id},{cp_id},INEXISTENTE".encode(FORMAT))
                 producer.flush()
                 continue
@@ -142,18 +146,21 @@ def kafka_central_driver(broker, producer):
             #para validar si hay clave, si por ejemplo se revocan las claves se envia un fallo al driver para cortar el suministro
             if not clave_cp:
                 print(f"Denegada la carga a {driver_id} en {cp_id}: Credenciales CP revocadas.")
+                auditar_evento("KAFKA", "DENEGADO", f"CP {cp_id} sin credenciales ({driver_id})")
                 producer.send('central_driver', f"DENEGADO,{driver_id},{cp_id},FALLO_SEGURIDAD_CP".encode(FORMAT))
                 producer.flush()
                 continue
 
             if estado_actual != "ACTIVADO":
                 print(f"Denegada la carga a {driver_id} en {cp_id}, Estado: {estado_actual}")
+                auditar_evento("KAFKA", "DENEGADO", f"CP {cp_id} está {estado_actual} ({driver_id})")
                 producer.send('central_driver', f"DENEGADO,{driver_id},{cp_id},{estado_actual}".encode(FORMAT))
                 producer.flush()
                 continue
             
             # si esta todo bien autorizamos la carga
             print(f"Autorizando a {driver_id} en {cp_id}")
+            auditar_evento("KAFKA", "CARGA_AUTORIZADA", f"Driver {driver_id} autorizado en {cp_id}")
             
             #avisar al driver de que ha sido autorizado
             producer.send('central_driver', f"AUTORIZADO,{driver_id},{cp_id}".encode(FORMAT))
@@ -623,7 +630,16 @@ def recibir_alerta_clima():
         estado_clima = datos.get('estado_clima')
 
         ip_origen = request.remote_addr #origen para la auditoria
-        auditar_evento(f"EV_W ({ip_origen})", "CAMBIO_CLIMA", f"CP: {cp_id}, Estado: {estado_clima}")
+        
+        # Solo auditamos en la web si es un cambio real (evita el spam de la sincronización de los 60s)
+        es_cambio_real = False
+        if estado_clima == "alerta" and cp_id not in cps_bajo_alerta_clima:
+            es_cambio_real = True
+        elif estado_clima == "normal" and cp_id in cps_bajo_alerta_clima:
+            es_cambio_real = True
+            
+        if es_cambio_real:
+            auditar_evento(f"EV_W ({ip_origen})", "CAMBIO_CLIMA", f"CP: {cp_id}, Estado: {estado_clima}")
 
         #miramos en la base de datos, para actualizar el estado correctamente
         fila = db.seleccionar_cp(cp_id)
@@ -637,6 +653,7 @@ def recibir_alerta_clima():
             return jsonify({"error": "CP desconectado temporalmente"}), 503 #para que el modulo de clima lo siga intentado, hasta que no este desconectado
 
         if estado_clima == "alerta":
+            cps_bajo_alerta_clima.add(cp_id) # Registramos que está bajo alerta
             if estado_actual in ["ACTIVADO", "SUMINISTRANDO", "AVERIADO"]: # en estos casos el cp se parara
                 print(f"Alerta de clima en {cp_id}. Parando CP...")
                 db.actualizar_estado_cp(cp_id, "PARADO")
@@ -645,6 +662,7 @@ def recibir_alerta_clima():
                 print(f"Alerta de clima recibida para {cp_id}, pero se mantiene estado: {estado_actual}") # en caso de a ver revocado las claves no, porque si luego le doy reanudar cp no le veo el sentido
             
         elif estado_clima == "normal":
+            cps_bajo_alerta_clima.discard(cp_id) # Ya no está bajo alerta
             if estado_actual == "PARADO": #solo reactivamos el cp si estaba parado
                 print(f"Clima normalizado en {cp_id}. Reanudando CP...")
                 db.actualizar_estado_cp(cp_id, "ACTIVADO")
@@ -682,10 +700,13 @@ def reanudar_cp(cp_id):
         cp_id = cp_id.upper()
 
         info = db.seleccionar_cp(cp_id)
-
         if not info or not info[4] or not info[5]:
             print(f"Se ha intentado reanudar {cp_id} sin credenciales.")
             return jsonify({"error": "DENEGADO: CP no tiene credenciales, hay que autenticarse otra vezdesde el Monitor."}), 403
+
+        if cp_id in cps_bajo_alerta_clima:
+            print(f"Se ha intentado reanudar {cp_id} pero sigue bajo alerta climática.")
+            return jsonify({"error": "DENEGADO: El punto de carga sigue superando el límite de temperatura."}), 403
 
         db.actualizar_estado_cp(cp_id, "ACTIVADO")
         enviar_orden_engine(kafka_producer, cp_id, "REANUDAR_CP")
