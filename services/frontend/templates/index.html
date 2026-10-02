@@ -73,12 +73,46 @@
             padding: 4px 0; 
             word-wrap: break-word;
         }
-    </style>
+        .weather-widget {
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-left: 5px solid #3498db;
+        }
+        .weather-widget input {
+            padding: 8px;
+            width: 60px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .weather-widget button {
+            background-color: #3498db;
+            padding: 10px 20px;
+            margin-left: 10px;
+        }
     </style>
 </head>
 <body>
 
     <h1>MONITORIZACIÓN CPs - EVCharging</h1>
+    
+    <!-- Widget de Clima Dinámico -->
+    <div class="weather-widget">
+        <div>
+            <strong>Límite de Alerta Climática:</strong>
+            <span style="color: #666; font-size: 0.9em;"> (Si baja de estos grados, se pararán los cargadores)</span>
+        </div>
+        <div>
+            <input type="number" id="temp-input" value="..."> <strong>ºC</strong>
+            <button onclick="guardarLimiteClima()">Guardar</button>
+        </div>
+    </div>
     <div id="cp-container" class="grid-container">
         <p>Cargando datos...</p>
     </div>
@@ -90,6 +124,30 @@
     <script>
         // Recuperar la URL de la API Central desde el Backend de Frontend
         const API_BASE = "{{ api_base }}"; 
+
+        async function cargarLimiteClima() {
+            try {
+                const resp = await fetch(`${API_BASE}/api/weather/config`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    document.getElementById('temp-input').value = data.limite_temp;
+                }
+            } catch (e) { console.error("Error cargando el límite de clima", e); }
+        }
+
+        async function guardarLimiteClima() {
+            const nuevoLimite = document.getElementById('temp-input').value;
+            try {
+                await fetch(`${API_BASE}/api/weather/config`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ limite_temp: nuevoLimite })
+                });
+                alert("Límite de temperatura actualizado con éxito");
+            } catch (e) {
+                alert("Error al guardar el límite");
+            }
+        }
 
         async function actualizarDatos() {
             try {
@@ -196,6 +254,7 @@
 
         setInterval(actualizarDatos, 2000); //actualiza cada 2 segundos
         actualizarDatos();
+        cargarLimiteClima();
     </script>
 </body>
 </html>

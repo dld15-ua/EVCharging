@@ -23,14 +23,25 @@ CIUDADES = parsear_ciudades(_ciudades_env) if _ciudades_env else {
 
 CENTRAL_URL = os.environ.get("CENTRAL_URL", "https://192.168.56.1:5001")
 
-LIMITE_TEMP = int(os.environ.get("LIMITE_TEMP", "20"))
+limite_actual = int(os.environ.get("LIMITE_TEMP", "20"))
 
 estados_clima = {} #para mantener el estado del clima
+
+def obtener_config_central():
+    try:
+        url = f"{CENTRAL_URL}/api/weather/config"
+        respuesta = requests.get(url, verify=False, timeout=3)
+        if respuesta.status_code == 200:
+            data = respuesta.json()
+            return data.get("limite_temp", limite_actual), data.get("ciudades", CIUDADES)
+    except Exception:
+        pass
+    return limite_actual, CIUDADES
 
 def obtener_temperatura(ciudad):
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather?q={ciudad}&appid={API_KEY}&units=metric"
-        respuesta = requests.get(url)
+        respuesta = requests.get(url, timeout=5)
         data = respuesta.json()
         if respuesta.status_code == 200:
             return data['main']['temp']
@@ -62,13 +73,18 @@ if __name__ == "__main__":
     
     while True:
         try:
-            print("Consultando la API de OpenWeather para obtener temperatura...")
+            limite_actual, CIUDADES = obtener_config_central()
+            print(f"Consultando la API de OpenWeather para obtener temperatura (Límite térmico actual: {limite_actual}ºC)...")
+            
             for ciudad, cp_id in CIUDADES.items():
+                if ciudad not in estados_clima:
+                    estados_clima[ciudad] = None
+                    
                 temp = obtener_temperatura(ciudad)
                 if temp is not None:
                     print(f"{ciudad}: {temp}ºC")
                     estado = "normal"
-                    if temp < LIMITE_TEMP:
+                    if temp < limite_actual:
                         estado = "alerta"
 
                     estado_anterior = estados_clima[ciudad] #sacamos el estado guradado anterior para ver si hace falta actualizarlo 

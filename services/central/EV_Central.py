@@ -16,6 +16,7 @@ db = DatabaseManager(DB_FILE)
 historial_logs = [] # para guardar los logs importantes, con la funcion auditar evento, y poder mostrarlos en el front
 lock_frontend = threading.Lock()
 cps_bajo_alerta_clima = set() # Memoria temporal para rastrear qué CPs sufren alertas climáticas
+limite_temperatura = 20 # Grados por defecto a partir de los cuales se considera "alerta" térmica
 
 # funcion para la auditorias, para eventos importantes como registro de un monitor, averia, alerta de clima
 def auditar_evento(origen, accion, descripcion):
@@ -620,6 +621,27 @@ def listar_cps():
         return jsonify(lista), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# Variable global para rastrear ciudades (esto en un futuro podría ir a BD)
+ciudades_monitorizadas = {"Alicante": "ALC1", "Madrid": "ALC2"}
+
+# rutas para configurar el clima dinámicamente desde el front
+@app.route('/api/weather/config', methods=['GET', 'POST'])
+def configurar_clima():
+    global limite_temperatura
+    if request.method == 'POST':
+        nuevo_limite = request.json.get('limite_temp')
+        if nuevo_limite is not None:
+            limite_temperatura = int(nuevo_limite)
+            auditar_evento("CENTRAL", "CONFIGURACION", f"Límite de temperatura cambiado a {limite_temperatura}ºC")
+            return jsonify({"status": "OK", "limite_temp": limite_temperatura})
+        return jsonify({"error": "Parámetro limite_temp faltante"}), 400
+    
+    # GET
+    return jsonify({
+        "limite_temp": limite_temperatura,
+        "ciudades": ciudades_monitorizadas
+    })
 
 #ruta para recibir la info de la api de clima
 @app.route('/api/weather', methods=['POST'])
