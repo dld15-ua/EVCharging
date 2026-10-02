@@ -39,8 +39,8 @@ Consultar [SPEC.md](SPEC.md) para la especificación técnica completa.
 
 ```bash
 cp .env.example .env
-# Editar .env si es necesario (API key de OpenWeather, puertos, etc.)
 ```
+"Editar .env si es necesario (API key de OpenWeather, puertos, etc.)"
 
 ### 3. Levantar el sistema
 
