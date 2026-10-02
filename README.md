@@ -4,11 +4,12 @@ Sistema distribuido para la gestión de puntos de recarga de vehículos eléctri
 
 ## Arquitectura
 
-El sistema se compone de 6 microservicios + Apache Kafka como bus de mensajería:
+El sistema se compone de 7 microservicios + Apache Kafka como bus de mensajería:
 
 | Servicio | Descripción | Comunicación |
 |----------|-------------|--------------|
 | **Central** | Servidor central. API REST + Socket TLS + Kafka | HTTPS :5001, Socket :65000 |
+| **Frontend** | Interfaz web de monitorización | HTTPS :5002 |
 | **Registry** | Registro de CPs y generación de credenciales | HTTPS :5000 |
 | **Engine** | Simulación del suministro eléctrico | Kafka + Socket local |
 | **Monitor** | Monitoriza Engine y reporta a Central | Socket TLS + Socket local |
@@ -27,7 +28,11 @@ Consultar [SPEC.md](SPEC.md) para la especificación técnica completa.
 ### 1. Generar certificados SSL
 
 ```bash
-./scripts/generate_certs.sh
+./scripts/generate_certs.sh //para linux
+```
+
+```bash
+./scripts/generate_certs.bat //para windows
 ```
 
 ### 2. Configurar variables de entorno
@@ -54,7 +59,7 @@ Esto arrancará:
 
 ### 4. Acceder al frontend
 
-Abrir en el navegador: `https://localhost:5001`
+Abrir en el navegador: `https://localhost:5002`
 
 (Aceptar el certificado autofirmado)
 
@@ -64,9 +69,17 @@ Abrir en el navegador: `https://localhost:5001`
 docker attach evcharging-driver
 ```
 
-Introducir el ID del CP (ej: `ALC1`) y pulsar ENTER para solicitar carga.
+Introducir el ID del CP (ej: `ALC1`) y pulsar ENTER para solicitar carga. Para salir sin matar el contenedor, usa `Ctrl+P` seguido de `Ctrl+Q`.
 
-### 6. Parar el sistema
+### 6. Renovar credenciales (Monitor)
+
+Si desde la interfaz web revocas las claves de un cargador, este se quedará desconectado de Central. Para que vuelva a pedir claves nuevas al Registry automáticamente, reinicia su contenedor:
+
+```bash
+docker restart evcharging-monitor-alc1
+```
+
+### 7. Parar el sistema
 
 ```bash
 docker compose down
@@ -86,7 +99,8 @@ EVCharging/
 ├── SPEC.md
 ├── README.md
 ├── services/
-│   ├── central/          # EV_Central + database_manager + frontend
+│   ├── central/          # EV_Central + database_manager
+│   ├── frontend/         # EV_Frontend (UI Web)
 │   ├── registry/         # EV_Registry
 │   ├── engine/           # EV_CP_E (Engine)
 │   ├── monitor/          # EV_CP_M (Monitor)

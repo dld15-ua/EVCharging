@@ -63,7 +63,7 @@ EVCharging es un sistema distribuido de gestión de puntos de recarga de vehícu
 
 ## 3. Módulos — Especificación Detallada
 
-### 3.1 EV_Central (`EV_Central.py` — 753 líneas)
+### 3.1 EV_Central (`EV_Central.py`)
 
 **Rol**: Servidor central. Orquesta todo el sistema.
 
@@ -71,27 +71,29 @@ EVCharging es un sistema distribuido de gestión de puntos de recarga de vehícu
 1. **Servidor SSL/TLS Socket** (puerto configurable, ej. 65000) — acepta conexiones de Monitores.
 2. **Consumidor Kafka `driver_central`** — recibe peticiones REQUEST de drivers.
 3. **Consumidor Kafka `cp_central`** — recibe mensajes CARGANDO/TICKET/EVENT de engines.
-4. **API REST Flask con HTTPS** (puerto 5001) — sirve frontend + endpoints internos.
+4. **API REST Flask con HTTPS** (puerto 5001) — endpoints internos y comunicación AJAX con el Frontend.
 
 **Dependencias**:
 - `database_manager.py` (SQLite)
-- `templates/index.html` (frontend)
 - `server_cert.pem`, `server_key.pem` (certificados SSL)
 - Kafka broker
-
-**Argumentos CLI**: `python3 EV_Central.py <puerto_escucha> <broker_ip> <broker_puerto>`
 
 **Endpoints REST**:
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| GET | `/` | Sirve el frontend HTML |
 | GET | `/cps` | Lista todos los CPs con estado, precio, token, info de carga en tiempo real |
 | POST | `/api/internal/registro-cp` | Recibe datos de registro desde Registry (interno) |
 | POST | `/api/weather` | Recibe alertas de clima desde EV_Weather |
-| GET | `/api/logs` | Devuelve historial de auditoría (max 20 entradas) |
+| GET/POST | `/api/weather/config` | Obtiene/Modifica el límite térmico y ciudades dinámicamente |
+| GET | `/api/logs` | Devuelve historial de auditoría |
 | POST | `/cps/<cp_id>/parar` | Orden de parada manual desde frontend |
 | POST | `/cps/<cp_id>/reanudar` | Orden de reanudación desde frontend |
 | POST | `/cps/<cp_id>/revocar` | Revocación de credenciales desde frontend |
+
+### 3.1.b EV_Frontend (`EV_Frontend.py`)
+
+**Rol**: Servidor Web ligero e independiente.
+**Componentes**: Servidor Flask (`HTTPS :5002`) que sirve el HTML/JS/CSS rediseñado. Consume la API REST de Central (`:5001`) aprovechando CORS.
 
 **Topics Kafka**:
 | Topic | Rol en Central |
@@ -163,7 +165,7 @@ EVCharging es un sistema distribuido de gestión de puntos de recarga de vehícu
 **Rol**: Intermediario entre Engine y Central. Monitoriza el Engine y reporta estado a Central.
 
 **Flujo**:
-1. El usuario pulsa ENTER → solicita credenciales al Registry (`POST /registro`).
+1. Auto-registro: si arranca sin token, solicita credenciales automáticamente al Registry (`POST /registro`).
 2. Con el token, se conecta a Central vía SSL Socket y envía `AUT,<cp_id>,<token>`.
 3. Conecta con el Engine local vía socket y envía `SET_KEY,<clave>`.
 4. Bucle: cada segundo hace PING al Engine y envía `STAT,<cp_id>,OK/KO` o `EVENT,<cp_id>,AVERIADO` a Central (cifrado con Fernet).
@@ -190,17 +192,16 @@ EVCharging es un sistema distribuido de gestión de puntos de recarga de vehícu
 
 ---
 
-### 3.6 EV_Weather (`EV_Weather.py` — 74 líneas)
+### 3.6 EV_Weather (`EV_Weather.py`)
 
 **Rol**: Consulta la API de OpenWeatherMap y notifica alertas de clima a Central.
 
 **Funcionamiento**:
-- Consulta temperatura cada 4 segundos para ciudades del diccionario `CIUDADES`.
-- Si temperatura < 20°C → envía `{cp_id, estado_clima: "alerta"}` a Central.
-- Si temperatura ≥ 20°C y antes era alerta → envía `{cp_id, estado_clima: "normal"}`.
-- Si Central responde 503 (CP desconectado), reintenta en el siguiente ciclo.
-
-**URLs hardcodeadas**: `CENTRAL_URL = "https://192.168.56.1:5001"`  
+- Consulta temperatura cada 4 segundos.
+- Antes de cada consulta, pide a Central (`/api/weather/config`) el límite de temperatura dinámico y la lista de ciudades a rastrear.
+- Si temperatura < Límite Dinámico → envía `{cp_id, estado_clima: "alerta"}` a Central.
+- Si temperatura ≥ Límite Dinámico y antes era alerta → envía `{cp_id, estado_clima: "normal"}`.
+- Sincroniza rutinariamente cada 60s para asegurar consistencia con Central.
 **API Key hardcodeada**: (configurar en `.env` como `OPENWEATHER_API_KEY`)
 
 ---
@@ -417,416 +418,3 @@ EVCharging/
 └── scripts/
     └── generate_certs.sh       # Script para regenerar certificados autofirmados
 ```
-
----
-
-## 10. Plan Detallado de Dockerización
-
-### 10.1 Principios de Diseño
-
-1. **Un contenedor por servicio** — refleja la separación original en máquinas.
-2. **Red Docker interna** — sustituye a la red 192.168.56.0/24 de VirtualBox.
-3. **Variables de entorno** — eliminan IPs hardcodeadas; los servicios se referencian por nombre DNS de Docker.
-4. **Volúmenes** — certificados y BD compartidos como volúmenes Docker.
-5. **Kafka en Docker** — imagen oficial de Confluent o Bitnami.
-6. **Sin modificar la lógica** — solo se parametrizan IPs/puertos con env vars.
-
-### 10.2 Contenedores y Configuración
-
-#### 10.2.1 `kafka` (+ Zookeeper o KRaft)
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen | `bitnami/kafka:latest` (modo KRaft, sin Zookeeper) |
-| Puerto interno | 9092 |
-| Puerto externo | 9092 (opcional, para debug) |
-| Red | `evcharging-net` |
-| Nombre DNS | `kafka` |
-| Topics necesarios | `driver_central`, `central_driver`, `cp_central`, `central_cp` |
-
-#### 10.2.2 `central`
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen base | `python:3.11-slim` |
-| Contexto build | `services/central/` |
-| Puertos | `65000` (socket TLS), `5001` (HTTPS API) |
-| Volúmenes | `./certs:/app/certs:ro`, `evcharging-db:/app/data` |
-| Env vars | `BROKER_HOST=kafka`, `BROKER_PORT=9092`, `SOCKET_PORT=65000`, `API_PORT=5001` |
-| Red | `evcharging-net` |
-| `depends_on` | `kafka` |
-| Healthcheck | `curl -k https://localhost:5001/cps` |
-
-**Cambios necesarios en `EV_Central.py`**:
-- Leer `BROKER_HOST`, `BROKER_PORT`, `SOCKET_PORT` de env vars (en lugar de `sys.argv`).
-- Ruta de certificados: `/app/certs/server_cert.pem`, `/app/certs/server_key.pem`.
-- Ruta de BD: `/app/data/evcharging.db`.
-
-#### 10.2.3 `registry`
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen base | `python:3.11-slim` |
-| Puerto | `5000` (HTTPS) |
-| Volúmenes | `./certs:/app/certs:ro` |
-| Env vars | `CENTRAL_URL=https://central:5001`, `REGISTRY_PORT=5000` |
-| Red | `evcharging-net` |
-| `depends_on` | `central` |
-
-**Cambios necesarios en `EV_Registry.py`**:
-- `URL_CENTRAL` → leer de env var `CENTRAL_URL`.
-- Ruta de certificados: `/app/certs/registry_cert.pem`, `/app/certs/registry_key.pem`.
-
-#### 10.2.4 `engine` (escalable — una instancia por CP)
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen base | `python:3.11-slim` |
-| Puerto | `65001` (socket local para monitor) |
-| Env vars | `BROKER_HOST=kafka`, `BROKER_PORT=9092`, `CP_ID=ALC1`, `ENGINE_PORT=65001` |
-| Red | `evcharging-net` |
-| `depends_on` | `kafka` |
-
-**Cambios necesarios en `EV_CP_E.py`**:
-- Leer `BROKER_HOST`, `BROKER_PORT`, `CP_ID`, `ENGINE_PORT` de env vars.
-- Cambiar bind address de `127.0.0.1` a `0.0.0.0` (para que el monitor de otro contenedor pueda conectar).
-- Eliminar la interfaz interactiva `input()` del hilo principal (no hay TTY en Docker) → reemplazar con señales o mantener como daemon.
-
-#### 10.2.5 `monitor` (escalable — una instancia por CP)
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen base | `python:3.11-slim` |
-| Env vars | `CENTRAL_HOST=central`, `CENTRAL_PORT=65000`, `ENGINE_HOST=engine-alc1`, `ENGINE_PORT=65001`, `CP_ID=ALC1`, `UBICACION=Calle-ORIHUELA`, `REGISTRY_URL=https://registry:5000` |
-| Red | `evcharging-net` |
-| `depends_on` | `central`, `registry`, `engine` |
-
-**Cambios necesarios en `EV_CP_M.py`**:
-- Leer todas las IPs/puertos de env vars.
-- `URL_REGISTRY` → env var `REGISTRY_URL`.
-- Registro automático al arrancar (sin esperar ENTER) → o script wrapper de entrypoint.
-
-#### 10.2.6 `driver`
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen base | `python:3.11-slim` |
-| Env vars | `BROKER_HOST=kafka`, `BROKER_PORT=9092`, `DRIVER_ID=D001` |
-| Red | `evcharging-net` |
-| `depends_on` | `kafka` |
-| `stdin_open: true`, `tty: true` | Para modo interactivo |
-
-**Cambios necesarios en `EV_Driver.py`**:
-- Leer `BROKER_HOST`, `BROKER_PORT`, `DRIVER_ID` de env vars.
-- Soportar modo "fichero" montando el fichero como volumen.
-
-#### 10.2.7 `weather`
-
-| Parámetro | Valor |
-|-----------|-------|
-| Imagen base | `python:3.11-slim` |
-| Env vars | `CENTRAL_URL=https://central:5001`, `OPENWEATHER_API_KEY=<key>`, `CIUDADES=Alicante:ALC1,Madrid:ALC2`, `LIMITE_TEMP=20` |
-| Red | `evcharging-net` |
-| `depends_on` | `central` |
-
-**Cambios necesarios en `EV_Weather.py`**:
-- `CENTRAL_URL` → env var.
-- `API_KEY` → env var `OPENWEATHER_API_KEY`.
-- `CIUDADES` → parsear de env var (formato `ciudad:cp_id,ciudad:cp_id`).
-- `LIMITE_TEMP` → env var.
-
-### 10.3 Red Docker
-
-```yaml
-networks:
-  evcharging-net:
-    driver: bridge
-```
-
-Todos los contenedores se conectan a `evcharging-net`. Los nombres de servicio en `docker-compose.yml` actúan como hostnames DNS resolvibles internamente.
-
-### 10.4 Volúmenes
-
-```yaml
-volumes:
-  evcharging-db:    # Persistencia de la BD SQLite de Central
-```
-
-Los certificados se montan como bind mount de solo lectura desde `./certs`.
-
-### 10.5 Escalabilidad de Puntos de Carga
-
-Para desplegar múltiples CPs, se pueden definir perfiles o usar `docker compose --scale`. Sin embargo, dado que cada Engine+Monitor necesita un `CP_ID` único, es más limpio definirlos explícitamente:
-
-```yaml
-  engine-alc1:
-    build: ./services/engine
-    environment:
-      - CP_ID=ALC1
-      - ENGINE_PORT=65001
-    # ...
-
-  engine-alc2:
-    build: ./services/engine
-    environment:
-      - CP_ID=ALC2
-      - ENGINE_PORT=65001
-    # ...
-
-  monitor-alc1:
-    build: ./services/monitor
-    environment:
-      - CP_ID=ALC1
-      - ENGINE_HOST=engine-alc1
-    depends_on:
-      - engine-alc1
-    # ...
-
-  monitor-alc2:
-    build: ./services/monitor
-    environment:
-      - CP_ID=ALC2
-      - ENGINE_HOST=engine-alc2
-    depends_on:
-      - engine-alc2
-    # ...
-```
-
-### 10.6 Certificados SSL en Docker
-
-**Opción A (recomendada para desarrollo)**: Montar los certificados existentes via bind mount.
-
-**Opción B (producción)**: Script `generate_certs.sh` que genera los certificados con el CN correcto (nombre DNS del contenedor) al hacer build o en un init container.
-
-> **Nota importante**: Los certificados actuales tienen CN con IP fija (192.168.56.x). En Docker, los servicios se resuelven por nombre DNS. Como todas las conexiones usan `verify=False`, esto no es problema inmediato, pero para una implementación correcta habría que regenerar los certificados con el CN del nombre del servicio Docker (ej: `central`, `registry`).
-
-### 10.7 docker-compose.yml — Esqueleto Preliminar
-
-```yaml
-version: '3.8'
-
-services:
-  kafka:
-    image: bitnami/kafka:latest
-    environment:
-      - KAFKA_CFG_NODE_ID=0
-      - KAFKA_CFG_PROCESS_ROLES=controller,broker
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
-    networks:
-      - evcharging-net
-    healthcheck:
-      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  central:
-    build: ./services/central
-    ports:
-      - "5001:5001"      # API REST (frontend accesible desde el host)
-      - "65000:65000"    # Socket TLS para monitores
-    environment:
-      - BROKER_HOST=kafka
-      - BROKER_PORT=9092
-      - SOCKET_PORT=65000
-      - API_PORT=5001
-    volumes:
-      - ./certs:/app/certs:ro
-      - evcharging-db:/app/data
-    depends_on:
-      kafka:
-        condition: service_healthy
-    networks:
-      - evcharging-net
-
-  registry:
-    build: ./services/registry
-    ports:
-      - "5000:5000"
-    environment:
-      - CENTRAL_URL=https://central:5001
-      - REGISTRY_PORT=5000
-    volumes:
-      - ./certs:/app/certs:ro
-    depends_on:
-      - central
-    networks:
-      - evcharging-net
-
-  engine-alc1:
-    build: ./services/engine
-    environment:
-      - BROKER_HOST=kafka
-      - BROKER_PORT=9092
-      - CP_ID=ALC1
-      - ENGINE_PORT=65001
-    depends_on:
-      kafka:
-        condition: service_healthy
-    networks:
-      - evcharging-net
-
-  monitor-alc1:
-    build: ./services/monitor
-    environment:
-      - CENTRAL_HOST=central
-      - CENTRAL_PORT=65000
-      - ENGINE_HOST=engine-alc1
-      - ENGINE_PORT=65001
-      - CP_ID=ALC1
-      - UBICACION=Calle-ORIHUELA
-      - REGISTRY_URL=https://registry:5000
-    depends_on:
-      - central
-      - registry
-      - engine-alc1
-    networks:
-      - evcharging-net
-
-  driver:
-    build: ./services/driver
-    environment:
-      - BROKER_HOST=kafka
-      - BROKER_PORT=9092
-      - DRIVER_ID=D001
-    depends_on:
-      kafka:
-        condition: service_healthy
-    stdin_open: true
-    tty: true
-    networks:
-      - evcharging-net
-
-  weather:
-    build: ./services/weather
-    environment:
-      - CENTRAL_URL=https://central:5001
-      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
-      - CIUDADES=Alicante:ALC1,Madrid:ALC2
-      - LIMITE_TEMP=20
-    depends_on:
-      - central
-    networks:
-      - evcharging-net
-
-networks:
-  evcharging-net:
-    driver: bridge
-
-volumes:
-  evcharging-db:
-```
-
-### 10.8 Dockerfile — Plantilla Base
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-# Se sobrescribirá en cada servicio
-CMD ["python3", "nombre_modulo.py"]
-```
-
-### 10.9 Resumen de Cambios Necesarios en Código
-
-| Fichero | Cambio | Tipo |
-|---------|--------|------|
-| `EV_Central.py` | Args CLI → env vars (`BROKER_HOST`, `BROKER_PORT`, `SOCKET_PORT`) | Parametrización |
-| `EV_Central.py` | Rutas de certificados → `/app/certs/` | Ruta |
-| `EV_Central.py` | Ruta BD → `/app/data/evcharging.db` | Ruta |
-| `EV_Registry.py` | `URL_CENTRAL` → env var `CENTRAL_URL` | Parametrización |
-| `EV_Registry.py` | Rutas de certificados → `/app/certs/` | Ruta |
-| `EV_CP_E.py` | Args CLI → env vars | Parametrización |
-| `EV_CP_E.py` | Bind `127.0.0.1` → `0.0.0.0` | Red |
-| `EV_CP_E.py` | `input()` interactivo → modo daemon o señales | Interactividad |
-| `EV_CP_M.py` | Args CLI → env vars | Parametrización |
-| `EV_CP_M.py` | `URL_REGISTRY` hardcodeada → env var | Parametrización |
-| `EV_CP_M.py` | Registro manual (ENTER) → automático al arrancar | Interactividad |
-| `EV_Driver.py` | Args CLI → env vars | Parametrización |
-| `EV_Weather.py` | `CENTRAL_URL`, `API_KEY`, `CIUDADES`, `LIMITE_TEMP` → env vars | Parametrización |
-| `database_manager.py` | Path de BD parametrizable | Ruta |
-
-### 10.10 Orden de Arranque
-
-```mermaid
-graph TD
-    A[1. kafka] --> B[2. central]
-    B --> C[3. registry]
-    A --> D[4. engine-alc1]
-    C --> E[5. monitor-alc1]
-    D --> E
-    B --> E
-    A --> F[6. driver]
-    B --> G[7. weather]
-```
-
-1. **kafka** — debe estar healthy antes de que cualquier servicio Kafka arranque.
-2. **central** — necesita Kafka para crear producer/consumers.
-3. **registry** — necesita que Central esté escuchando en `:5001`.
-4. **engine(s)** — necesita Kafka (puede arrancar en paralelo con registry).
-5. **monitor(s)** — necesita Central (socket), Registry (credenciales) y Engine (PING).
-6. **driver** — necesita Kafka (puede arrancar cuando quiera, el usuario decide cuándo pedir carga).
-7. **weather** — necesita Central (API REST).
-
-### 10.11 Diagrama de Comunicaciones en Docker
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Red Docker: evcharging-net                   │
-│                                                                     │
-│  ┌─────────┐                                                        │
-│  │  kafka   │◄──── Kafka 9092 ────────────────────────┐             │
-│  │  :9092   │                                         │             │
-│  └────┬─────┘                                         │             │
-│       │                                               │             │
-│       │ Kafka                                         │ Kafka       │
-│       ▼                                               ▼             │
-│  ┌─────────────┐  HTTPS :5001    ┌──────────┐   ┌──────────┐       │
-│  │   central    │◄──────────────│ registry  │   │  driver   │       │
-│  │ :5001 :65000 │                │  :5000    │   │          │       │
-│  └──────┬───────┘                └─────┬────┘   └──────────┘       │
-│         │                              │                            │
-│    SSL Socket :65000                   │ HTTPS /registro            │
-│         │                              │                            │
-│         ▼                              ▼                            │
-│  ┌──────────────┐   Socket     ┌──────────────┐                    │
-│  │  monitor-X   │────:65001───▶│  engine-X    │                    │
-│  │              │              │              │                    │
-│  └──────────────┘              └──────────────┘                    │
-│                                                                     │
-│  ┌──────────┐  HTTPS /api/weather                                   │
-│  │ weather  │──────────────────▶ central                            │
-│  └──────────┘                                                       │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 11. Checklist de Implementación
-
-- [ ] Crear la estructura de directorios `services/*/`
-- [ ] Mover cada fichero `.py` a su directorio de servicio correspondiente
-- [ ] Crear `requirements.txt` para cada servicio
-- [ ] Parametrizar todas las IPs/puertos hardcodeadas con `os.environ.get()`
-- [ ] Cambiar rutas de certificados para usar `/app/certs/`
-- [ ] Cambiar ruta de BD a `/app/data/evcharging.db`
-- [ ] Cambiar bind address de Engine de `127.0.0.1` a `0.0.0.0`
-- [ ] Manejar interactividad de Engine (eliminar `input()`) y Monitor (registro automático)
-- [ ] Crear Dockerfiles para cada servicio
-- [ ] Crear `docker-compose.yml`
-- [ ] Crear `.env` con valores por defecto
-- [ ] Crear `scripts/generate_certs.sh` para regenerar certificados
-- [ ] Añadir healthchecks y retry logic para dependencias
-- [ ] Probar despliegue completo con `docker compose up`
-- [ ] Documentar en README.md
